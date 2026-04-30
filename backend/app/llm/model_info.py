@@ -76,7 +76,7 @@ async def get_model_info(
     api_key: str,
 ) -> Optional[ModelInfo]:
     """Resolve a model's context window + max output.
-
+ 
     Order of preference:
       1. Previously fetched + cached live value (providers that expose it)
       2. Fresh live fetch (Gemini)
@@ -100,7 +100,11 @@ async def get_model_info(
             return live
             
     if agent_kind == "ollama":
-        return await _fetch_ollama(model)
+        live = await _fetch_ollama(model)
+        if live is not None:
+            async with _cache_lock:
+                _cache[key] = live
+            return live
 
     return _STATIC.get(key)
 
@@ -135,5 +139,41 @@ async def _fetch_gemini(model: str, api_key: str) -> Optional[ModelInfo]:
         return None
 
 async def _fetch_ollama(model: str) -> Optional[ModelInfo]:
-    return ModelInfo(context_window=256000, max_output_tokens=8192, source="api")
+    """Fetch context length and capability metadata from Ollama's show endpoint."""
+    try:
+        import httpx
+        from app.store.credentials import get_ollama_base_url
+        base_url = get_ollama_base_url().rstrip('/')
+        
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(f"{base_url}/api/show", json={"name": model})
+            resp.raise_for_status()
+            data = resp.json()
+            
+            # Context length usually sits in model_info under a key that ends with '.context_length' 
+            # e.g. 'llama.context_length' or 'deepseek.context_length'
+            model_info = data.get("model_info", {})
+            
+            ctx = 0
+            for key, val in model_info.items():
+                if key.endswith(".context_length") and isinstance(val, int):
+                    ctx = val
+                    break
+                    
+            if ctx <= 0:
+                ctx = 128000 # Sensible default if not reported
+                
+            return ModelInfo(
+                context_window=ctx,
+                max_output_tokens=8192,
+                source="api",
+            )
+    except Exception as exc:
+        log.info(
+            "model_info: ollama live fetch failed for %s (%s: %s)",
+            model,
+            type(exc).__name__,
+            exc,
+        )
+        return ModelInfo(context_window=128000, max_output_tokens=8192, source="static")
 
