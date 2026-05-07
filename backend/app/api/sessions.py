@@ -67,7 +67,9 @@ async def update_session(session_id: str, payload: SessionUpdate) -> Session:
     if sess is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     if payload.model is not None:
-        allowed = MODELS.get(sess.agent_kind, [])
+        from app.api.models import get_all_models_dict
+        all_models = await get_all_models_dict()
+        allowed = all_models.get(sess.agent_kind, [])
         if payload.model not in allowed:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,

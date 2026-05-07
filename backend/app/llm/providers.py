@@ -75,10 +75,9 @@ def _translate_to_openai(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                         },
                     })
                 # thinking blocks are skipped — OpenAI has no equivalent
-            msg: Dict[str, Any] = {
-                "role": "assistant",
-                "content": "\n".join(texts) if texts else None,
-            }
+            msg: Dict[str, Any] = {"role": "assistant"}
+            if texts:
+                msg["content"] = "\n".join(texts)
             if tool_calls:
                 msg["tool_calls"] = tool_calls
             out.append(msg)
