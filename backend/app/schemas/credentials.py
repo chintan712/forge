@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-AgentKind = Literal["claude", "openai", "gemini"]
+AgentKind = Literal["claude", "openai", "gemini", "ollama"]
 
 
 class CredentialStatus(BaseModel):

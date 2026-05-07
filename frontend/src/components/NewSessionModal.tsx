@@ -16,6 +16,7 @@ const AGENT_OPTIONS: { kind: AgentKind; label: string }[] = [
   { kind: 'claude', label: 'Claude' },
   { kind: 'openai', label: 'OpenAI' },
   { kind: 'gemini', label: 'Gemini' },
+  { kind: 'ollama', label: 'Ollama' },
 ]
 
 type Mode = 'form' | 'browse'
@@ -180,7 +181,7 @@ export default function NewSessionModal({
               borderRadius: 6,
             }}
           >
-            No API keys saved yet. Go to Settings and add at least one key (Claude, OpenAI, or Gemini).
+            No API keys saved yet. Go to Settings and add at least one key (Claude, OpenAI, Gemini) or configure your Ollama server.
           </p>
         )}
 

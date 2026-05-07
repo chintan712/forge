@@ -75,10 +75,9 @@ def _translate_to_openai(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                         },
                     })
                 # thinking blocks are skipped — OpenAI has no equivalent
-            msg: Dict[str, Any] = {
-                "role": "assistant",
-                "content": "\n".join(texts) if texts else None,
-            }
+            msg: Dict[str, Any] = {"role": "assistant"}
+            if texts:
+                msg["content"] = "\n".join(texts)
             if tool_calls:
                 msg["tool_calls"] = tool_calls
             out.append(msg)
@@ -445,4 +444,111 @@ def build_provider(agent_kind: str, api_key: str):
         return OpenAIProvider(api_key)
     if agent_kind == "gemini":
         return GeminiProvider(api_key)
+    if agent_kind == "ollama":
+        return OllamaProvider(api_key)
     raise ValueError(f"Unknown agent_kind: {agent_kind}")
+
+class OllamaProvider:
+    kind = "ollama"
+
+    def __init__(self, api_key: str) -> None:
+        from openai import AsyncOpenAI
+        from app.store.credentials import get_ollama_base_url
+        base_url = get_ollama_base_url().rstrip('/') + '/v1'
+        self._client = AsyncOpenAI(api_key=api_key if api_key else "ollama", base_url=base_url)
+
+    async def close(self) -> None:
+        try:
+            await self._client.close()
+        except Exception:
+            pass
+
+    async def stream_turn(
+        self,
+        *,
+        system: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: str,
+        emit: EmitFn,
+    ) -> Dict[str, Any]:
+        msg_id = f"msg-{uuid.uuid4()}"
+        openai_msgs: List[Dict[str, Any]] = [
+            {"role": "system", "content": system}
+        ]
+        openai_msgs.extend(_translate_to_openai(messages))
+
+        text = ""
+        tool_calls: Dict[int, Dict[str, str]] = {}
+        input_tokens = 0
+        output_tokens = 0
+
+        stream = await self._client.chat.completions.create(
+            model=model,
+            messages=openai_msgs,
+            tools=tools or None,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        async for chunk in stream:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+
+            content = getattr(delta, "content", None)
+            if content:
+                text += content
+                await emit({
+                    "type": "assistant.delta",
+                    "text": content,
+                    "message_id": msg_id,
+                })
+
+            tc_deltas = getattr(delta, "tool_calls", None)
+            if tc_deltas:
+                for tc_delta in tc_deltas:
+                    idx = tc_delta.index
+                    tc = tool_calls.setdefault(
+                        idx, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if tc_delta.id:
+                        tc["id"] = tc_delta.id
+                    fn = getattr(tc_delta, "function", None)
+                    if fn is not None:
+                        if getattr(fn, "name", None):
+                            tc["name"] = fn.name
+                        if getattr(fn, "arguments", None):
+                            tc["arguments"] += fn.arguments
+
+        if text:
+            await emit({
+                "type": "assistant.complete",
+                "text": text,
+                "message_id": msg_id,
+            })
+        if input_tokens or output_tokens:
+            await emit({
+                "type": "usage",
+                "message_id": msg_id,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            })
+
+        tool_uses: List[Dict[str, Any]] = []
+        for tc in tool_calls.values():
+            try:
+                args = json.loads(tc["arguments"] or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            # Ollama might not give us a tool id for OpenAIs, let's inject one if empty
+            t_id = tc["id"] if tc["id"] else f"call_{uuid.uuid4()}"
+            tool_uses.append(
+                {"id": t_id, "name": tc["name"], "input": args}
+            )
+        return {"text": text, "tool_uses": tool_uses}

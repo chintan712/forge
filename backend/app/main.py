@@ -1,9 +1,10 @@
+# modified by agent: add ollama settings routes
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # Make app.* loggers surface at INFO so WS lifecycle events are visible.
@@ -15,6 +16,7 @@ from app.api.models import router as models_router
 from app.api.sessions import router as sessions_router
 from app.db import init_db
 from app.ws.session_ws import router as ws_router
+from app.store.credentials import get_ollama_base_url, set_ollama_base_url
 
 
 @asynccontextmanager
@@ -35,6 +37,20 @@ app.include_router(ws_router)
 @app.get("/api/hello")
 async def hello() -> dict:
     return {"message": "Hello from the Forge backend"}
+
+
+@app.get("/api/settings/ollama")
+async def get_ollama_settings() -> dict:
+    return {"base_url": get_ollama_base_url()}
+
+
+@app.post("/api/settings/ollama")
+async def post_ollama_settings(body: dict) -> dict:
+    base_url = body.get("base_url")
+    if not isinstance(base_url, str) or not base_url.strip() or not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return JSONResponse(status_code=422, content={"error": "Invalid URL. Must start with http:// or https://"})
+    set_ollama_base_url(base_url.strip())
+    return {"ok": True}
 
 
 # Serve the built frontend bundle from app/static/ when present. The directory

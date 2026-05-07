@@ -1,10 +1,11 @@
+# modified by agent: add ollama base url config functions
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.db import get_conn
 from app.schemas.credentials import AgentKind, CredentialStatus
 
-AGENT_KINDS: tuple[AgentKind, ...] = ("claude", "openai", "gemini")
+AGENT_KINDS: tuple[AgentKind, ...] = ("claude", "openai", "gemini", "ollama")
 
 
 def _now_iso() -> str:
@@ -76,3 +77,12 @@ def delete_key(agent_kind: AgentKind) -> bool:
             conn.rollback()
             raise
     return cur.rowcount > 0
+
+
+def get_ollama_base_url() -> str:
+    url = get_key("ollama_url") # type: ignore
+    return url if url else "http://localhost:11434"
+
+
+def set_ollama_base_url(url: str) -> None:
+    upsert_key("ollama_url", url) # type: ignore

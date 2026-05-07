@@ -6,6 +6,7 @@ const AGENTS: { kind: AgentKind; label: string; placeholder: string }[] = [
   { kind: 'claude', label: 'Claude', placeholder: 'sk-ant-...' },
   { kind: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
   { kind: 'gemini', label: 'Gemini', placeholder: 'AIza...' },
+  { kind: 'ollama', label: 'Ollama (Cloud Model)', placeholder: 'sk-...' },
 ]
 
 export default function CredentialsPage() {
@@ -20,7 +21,7 @@ export default function CredentialsPage() {
   }, [])
 
   return (
-    <section style={{ padding: '32px 40px', maxWidth: 720, width: '100%' }}>
+    <section style={{ padding: '32px 40px 0 40px', maxWidth: 720, width: '100%' }}>
       <h2 style={{ marginTop: 0, fontSize: 20 }}>Settings</h2>
       <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 24 }}>
         API keys are stored locally in <code style={inlineCode}>~/.forge/app.db</code>. They never leave your machine.

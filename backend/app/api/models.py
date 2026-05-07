@@ -9,6 +9,7 @@ from the vendor API for Gemini. See ``app.llm.model_info``.
 """
 
 import asyncio
+import httpx
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -48,9 +49,27 @@ MODELS: Dict[str, List[str]] = {
 }
 
 
+async def fetch_ollama_models() -> List[str]:
+    base_url = cred_store.get_ollama_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{base_url.rstrip('/')}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []
+
+
+async def get_all_models_dict() -> Dict[str, List[str]]:
+    models = MODELS.copy()
+    models["ollama"] = await fetch_ollama_models()
+    return models
+
+
 @router.get("")
 async def list_models() -> Dict[str, List[str]]:
-    return MODELS
+    return await get_all_models_dict()
 
 
 @router.get("/details")
@@ -63,7 +82,8 @@ async def models_details() -> Dict[str, List[Dict[str, Any]]]:
       {
         "claude":  [ {id, context_window, max_output_tokens, source}, ... ],
         "openai":  [ ... ],
-        "gemini":  [ ... ]
+        "gemini":  [ ... ],
+        "ollama":  [ ... ]
       }
     """
     async def _one(kind: str, model: str) -> Dict[str, Any]:
@@ -76,40 +96,31 @@ async def models_details() -> Dict[str, List[Dict[str, Any]]]:
             "source": info.source if info else None,
         }
 
+    all_models = await get_all_models_dict()
     tasks: Dict[str, List[asyncio.Task[Dict[str, Any]]]] = {}
-    for kind, ids in MODELS.items():
+    for kind, ids in all_models.items():
         tasks[kind] = [asyncio.create_task(_one(kind, m)) for m in ids]
 
     out: Dict[str, List[Dict[str, Any]]] = {}
     for kind, task_list in tasks.items():
-        out[kind] = await asyncio.gather(*task_list)
+        if task_list:
+            out[kind] = await asyncio.gather(*task_list)
+        else:
+            out[kind] = []
     return out
 
 
 @router.get("/info")
 async def model_info_endpoint(
-    kind: AgentKind = Query(..., description="Provider (claude, openai, gemini)"),
-    model: str = Query(..., description="Model id — must be in MODELS[kind]"),
+    kind: AgentKind = Query(..., description="Provider (claude, openai, gemini, ollama)"),
+    model: str = Query(..., description="Model id"),
 ) -> Dict[str, Any]:
-    """Return context window + max output for a specific model.
-
-    Response shape:
-      {
-        "kind": "gemini",
-        "model": "gemini-2.5-pro",
-        "context_window": 2000000,
-        "max_output_tokens": 64000,
-        "source": "api"      // or "static", or null if unknown
-      }
-    """
-    if model not in MODELS.get(kind, []):
+    all_models = await get_all_models_dict()
+    if model not in all_models.get(kind, []):
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"Unknown model '{model}' for provider '{kind}'.",
         )
-    # For providers that require a key to live-fetch (Gemini), pass the
-    # saved credential through. Static-table lookups don't need it but
-    # it's harmless to pass an empty string.
     api_key = cred_store.get_key(kind) or ""
     info = await get_model_info(kind, model, api_key)
     if info is None:

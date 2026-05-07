@@ -1,4 +1,4 @@
-export type AgentKind = 'claude' | 'openai' | 'gemini'
+export type AgentKind = 'claude' | 'openai' | 'gemini' | 'ollama'
 
 export type SessionStatus =
   | 'idle'
