@@ -35,7 +35,7 @@ async def create_session(payload: SessionCreate) -> Session:
 
     p = Path(payload.folder_path).expanduser()
     try:
-        resolved = p.resolve(strict=False)
+        resolved = p.resolve(strict=False)  
     except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, f"Invalid folder path: {exc}"

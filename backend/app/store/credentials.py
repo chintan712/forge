@@ -80,9 +80,29 @@ def delete_key(agent_kind: AgentKind) -> bool:
 
 
 def get_ollama_base_url() -> str:
-    url = get_key("ollama_url") # type: ignore
-    return url if url else "http://localhost:11434"
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT api_key FROM credentials WHERE agent_kind = ?", ("ollama_url",)
+        ).fetchone()
+    return row["api_key"] if row else "http://localhost:11434"
 
 
 def set_ollama_base_url(url: str) -> None:
-    upsert_key("ollama_url", url) # type: ignore
+    now = _now_iso()
+    with get_conn() as conn:
+        try:
+            conn.execute("BEGIN")
+            conn.execute(
+                """
+                INSERT INTO credentials (agent_kind, api_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(agent_kind) DO UPDATE SET
+                    api_key    = excluded.api_key,
+                    updated_at = excluded.updated_at
+                """,
+                ("ollama_url", url, now, now),
+            )
+            conn.commit()
+        except Exception:   
+            conn.rollback()
+            raise
